@@ -1,0 +1,340 @@
+#!/usr/bin/env ruby
+
+require 'bundler/setup'
+require 'yeelight_cli'
+require 'gli'
+
+# rubocop:disable MixinUsage
+include GLI::App
+# rubocop:enable MixinUsage
+
+def convert_percentage_option(percentage_option)
+  if percentage_option[0] == '_'
+    percentage_option[1..-1].to_i * -1
+  else
+    percentage_option.to_i
+  end
+end
+
+program_desc 'Yeelight bulbs console client'
+program_long_desc <<-PROGRAM_DESC
+  The hierarchy of lamps: Room -> Group -> Subgroup -> Lamps
+
+  If you want a lamp to be in a room or a group,
+  the lamp should be called room_name/group_name/subgroup_name/lamp_name
+
+  You can skip some hierarchy parts
+
+  Example lamp names: "kitchen/ceiling/1", "bedroom/wall/top/2"
+  You are also able to skip the convention and name a lamp whatever you want.
+PROGRAM_DESC
+
+version YeelightCli::VERSION
+
+desc 'Show errors stacktraces'
+switch %i[e stacktrace]
+
+desc 'Perfom a command only for the selected rooms'
+arg_name 'Room name'
+flag %i[r room], multiple: true
+
+desc 'Perfom a command only for the selected groups'
+arg_name 'Group name'
+flag %i[g group], multiple: true
+
+desc 'Perfom a command only for the selected subgroups'
+arg_name 'Group name'
+flag %i[s subgroup], multiple: true
+
+desc 'Perfom a command only for the selected lamps'
+arg_name 'Lamp id'
+flag %i[l lamp], multiple: true
+
+desc 'Perform command with transition'
+arg_name 'Time in ms'
+flag %i[d duration]
+
+desc 'Show the graph of all the selected lamps'
+command :graph do |c|
+  c.desc 'Squash the graph'
+  c.switch %i[s squash]
+
+  c.action do |_, options, _|
+    puts @heap.to_graph(options.slice(:squash))
+  end
+end
+
+desc 'Set a brightness with a value in 1..100'
+arg_name 'value'
+command %i[brightness br] do |c|
+  c.action do |global_options, _, args|
+    raise 'You must specify a value in 1..100 range' if args.empty?
+
+    duration = global_options[:duration].to_i || 0
+    @heap.set_brightness(args.first.to_i, duration)
+  end
+end
+
+desc 'Set a color temperature with a value in 1700..6500'
+arg_name 'value'
+command [:'color-temperature', 'ct'] do |c|
+  c.action do |global_options, _, args|
+    raise 'You must specify a value in 1700..6500 range' if args.empty?
+
+    duration = global_options[:duration].to_i || 0
+    @heap.set_color_temperature(args.first.to_i, duration)
+  end
+end
+
+desc 'Set an rgb color with a value in 0x000001..0xffffff'
+arg_name 'value'
+command [:rgb] do |c|
+  c.action do |global_options, _, args|
+    raise 'You must specify a value in 0x000001..0xffffff range' if args.empty?
+
+    duration = global_options[:duration].to_i || 0
+    @heap.set_rgb(args.first.to_i(16), duration)
+  end
+end
+
+desc 'Change a bulb name'
+arg_name 'id name'
+command :'change-name' do |c|
+  c.action do |_, _, args|
+    raise 'You must specify a lamp id' if args.first.blank?
+    raise 'You must specify a new name' if args.second.blank?
+
+    lamp = YeelightCli.discover!.find_lamps(args.first).first
+    raise "The bulb hasn't been found" if lamp.blank?
+
+    lamp.name = args.second
+  end
+end
+
+desc 'Print names, ids and icons of all the selected lamps'\
+     '(lamps in the current network by default)'
+command :discover do |c|
+  c.action { |_| puts YeelightCli.discover!.map(&:to_s) }
+end
+
+desc 'Toggle all the selected lamps'
+command :toggle do |c|
+  c.action { |_| @heap.toggle! }
+end
+
+desc 'Set a random color for the selected lamps'
+command :random do |c|
+  c.action do |global_options, _|
+    duration = global_options[:duration].to_i || 0
+    @heap.random_color!(duration)
+  end
+end
+
+desc 'Turn power off or on'
+arg_name 'power'
+command [:power] do |c|
+  c.action do |global_options, _, args|
+    raise 'You must specify a current power state (on of off)' if args.empty?
+
+    duration = global_options[:duration].to_i || 0
+    @heap.set_power(args.first.to_sym, duration)
+  end
+end
+
+desc 'Set color with the huesat color model'
+arg_name 'hue sat'
+command [:huesat] do |c|
+  c.action do |global_options, _, args|
+    raise 'You must specify a hue with a value in 0..359' if args.first.blank?
+    raise 'You must specify a hue with a value in 0..100' if args.second.blank?
+
+    duration = global_options[:duration].to_i || 0
+
+    @heap.set_huesat(args.first.to_i, args.second.to_i, duration)
+  end
+end
+
+desc 'Delayed shutdown'
+arg_name 'minutes'
+command %i[delayed-shutdown shutdown] do |c|
+  c.action do |_, _, args|
+    raise 'You must specify a minutes' if args.empty?
+
+    @heap.delayed_shutdown_after(args.first.to_i)
+  end
+end
+
+desc 'Cancel a delayed shutdown'
+command %i[cancel-shutdown] do |c|
+  c.action do |_, _, _|
+    @heap.cancel_delayed_shutdown!
+  end
+end
+
+desc 'Adjust brightness, color temperature or color'
+arg_name 'action prop'
+command %i[adjust adj] do |c|
+  c.action do |_, _, args|
+    if args.first.blank?
+      raise 'You must specify an action (increase, decrease or circle)'
+    end
+
+    raise 'You must specify an prop (bright, ct or color)' if args.second.blank?
+
+    @heap.adjust(args.first, args.second)
+  end
+end
+
+desc 'Adjust brightness'
+long_desc 'Use underscore instead dash to define a negative value'
+arg_name 'percentage'
+command %i[adjust-brightness adjust-br adj-br] do |c|
+  c.action do |global_options, _, args|
+    if args.blank?
+      raise 'You must specify a percentage with a value in -100..-1 or 1..100'
+    end
+
+    percentage_option = args.first
+    percentage = convert_percentage_option(percentage_option)
+
+    duration = global_options[:duration].to_i || 0
+
+    @heap.adjust_brightness(percentage, duration)
+  end
+end
+
+desc 'Adjust color temperature'
+long_desc 'Use underscore instead dash to define a negative value'
+arg_name 'percentage'
+command %i[adjust-color-temperature adjust-ct adj-ct] do |c|
+  c.action do |global_options, _, args|
+    if args.blank?
+      raise 'You must specify a percentage with a value in -100..-1 or 1..100'
+    end
+
+    percentage_option = args.first
+    percentage = convert_percentage_option(percentage_option)
+
+    duration = global_options[:duration].to_i || 0
+
+    @heap.adjust_ct(percentage, duration)
+  end
+end
+
+desc 'Adjust color'
+long_desc 'Use underscore instead dash to define a negative value'
+arg_name 'percentage'
+command %i[adjust-color adj-color adj-c] do |c|
+  c.action do |global_options, _, args|
+    if args.blank?
+      raise 'You must specify a percentage with a value in -100..-1 or 1..100'
+    end
+
+    percentage_option = args.first
+    percentage = convert_percentage_option(percentage_option)
+
+    duration = global_options[:duration].to_i || 0
+
+    @heap.adjust_color(percentage, duration)
+  end
+end
+
+desc 'Start a color flow'
+long_desc <<-LONGDESCRIPTION
+  This method is used to start a color flow. Color flow is a series of smart
+  LED visible state changing. It can be brightness changing, color changing or color
+  temperature changing.
+
+  Parameters: 3.
+  - "count" is the total number of visible state changing before color flow
+       stopped. 0 means infinite loop on the state changing.
+  - "action" is the action taken after the flow is stopped.
+      0 means smart LED recover to the state before the color flow started.
+      1 means smart LED stay at the state when the flow is stopped.
+      2 means turn off the smart LED after the flow is stopped.
+  - "flow_expression" is the expression of the state changing series.
+  Args example: 4, 2, "1000, 2, 2700, 100, 500, 1, 255, 10, 5000, 7, 0,0, 500, 2, 5000, 1"
+
+  NOTE: Each visible state changing is defined to be a flow tuple that contains 4
+  elements: [duration, mode, value, brightness]. A flow expression is a series of flow tuples.
+  So for above request example, it means: change CT to 2700K & maximum brightness
+  gradually in 1000ms, then change color to red & 10% brightness gradually in 500ms, then
+  stay at this state for 5 seconds, then change CT to 5000K & minimum brightness gradually in
+   500ms. After 4 changes reached, stopped the flow and power off the smart LED.
+
+  [duration, mode, value, brightness]:
+  Duration: Gradual change time or sleep time, in milliseconds,
+    minimum value 50.
+  Mode: 1 – color, 2 – color temperature, 7 – sleep.
+  Value: RGB value when mode is 1, CT value when mode is 2,
+    Ignored when mode is 7.
+  Brightness: Brightness value, -1 or 1 ~ 100. Ignored when mode is 7.
+    When this value is -1, brightness in this tuple is ignored (only color or CT change takes
+     effect).
+
+  Only accepted if the smart LED is currently in "on" state
+LONGDESCRIPTION
+arg_name 'count action expression'
+command %i[start-color-flow start-cf cf] do |c|
+  c.action do |_, _, args|
+    @heap.start_cf(args.first.to_i, args.second.to_i, args.third)
+  end
+end
+
+desc 'Stop a color flow'
+command %i[stop-color-flow stop-cf] do |c|
+  c.action { |_| @heap.stop_cf }
+end
+
+desc 'Turn the music mode on'
+arg_name 'mode host port'
+command %i[music-mode music] do |c|
+  c.action do |_, _, args|
+    raise 'You must specify a mode (on or off)' if args.first.blank?
+    raise 'You must specify a host' if args.second.blank?
+    raise 'You must specify a port' if args.third.blank?
+
+    @heap.set_music(args.first.to_sym, args.second, args.third.to_i)
+  end
+end
+
+def filter_heap(heap, filter)
+  heap.map { |item| item.find_in_subgroups(filter) }.flatten
+end
+
+def wrap_heap_with_group(heap)
+  return heap.first if heap.size == 1
+
+  YeelightCli::BulbGroup.new(name: 'Main', includes: heap)
+end
+
+pre do |global_options, _|
+  @show_stacktrace = global_options[:e]
+
+  rooms, groups, subgroups, lamps = global_options.values_at(
+    :room,
+    :group,
+    :subgroup,
+    :lamp
+  )
+
+  heap = YeelightCli.discover!
+  heap = filter_heap(heap, rooms) if rooms.any?
+  heap = filter_heap(heap, groups) if rooms.any? && groups.any?
+  heap = filter_heap(heap, subgroups) if [rooms, groups, subgroups].all?(&:any?)
+  heap = heap.find_lamps(lamps) if lamps.any?
+
+  @heap = heap.is_a?(Array) ? wrap_heap_with_group(heap) : heap
+
+  raise 'No bulbs have been found' if heap.none?
+
+  true
+end
+
+on_error do |exception|
+  raise exception if @show_stacktrace
+
+  puts exception
+end
+
+exit run(ARGV)
