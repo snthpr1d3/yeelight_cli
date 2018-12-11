@@ -1,8 +1,13 @@
 # YeelightCli
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/yeelight_cli`. To experiment with that code, run `bin/console` for an interactive prompt.
+Remote control of yeelight bulbs in a local network.
 
-TODO: Delete this and the text above, and describe your gem
+**Bulbs need turning on remote control through a local network**
+
+## First of all
+  The bulbs have to be available to be controlled throught a local network using an open protocol. The easiest way to turn the remote control on is to use a mobile application such as "Yeelight" or "Mi Home".
+  
+  Here is going to be some screenshots.
 
 ## Installation
 
@@ -20,19 +25,26 @@ Or install it yourself as:
 
     $ gem install yeelight_cli
 
-## Usage
+## Console client usage
 
-TODO: Write usage instructions here
+**Synopsis:** `yeelight [global options] command [command options] [arguments...]`
 
-## Development
+You can get the full list of options and commands with `yeelight -h`
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+### Global options
+Here is the list of global options you can use for any command:
+* `-l lamp_identifier` perform a command only for a specific lamp using its identifier
+* `-r room_name` perform a command only for a specific room
+* `-g group_name` perform a command only for a specific group
+* `-s subgroup_name` perform a command only for a specific subgroup
+* `-d duration_in_ms` set a duration for command performing a light effect
+* `-e` show a stack trace in case of error
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and tags, and push the `.gem` file to [rubygems.org](https://rubygems.org).
-
-## Contributing
-
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/yeelight_cli.
+### Commands
+* `discover` prints names, ids and icons of all the selected lamps(lamps in the current network by default)
+ screenshot
+* `graph` shows the graph of all the selected lamps
+and so on
 
 ## License
 
